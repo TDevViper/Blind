@@ -30,7 +30,11 @@
     <button id="startButton">Start Assistant</button>
 
     <script>
-        const socket = io();
+        const socket = io({
+            transports: ['websocket', 'polling'],
+            reconnectionAttempts: 10,
+            reconnectionDelay: 2000
+        });
         const video = document.getElementById('videoElement');
         const canvas = document.getElementById('canvasElement');
         const context = canvas.getContext('2d');
@@ -59,16 +63,16 @@
                     isStreaming = true;
                     startButton.style.display = 'none';
                     processedImage.style.display = 'block';
-                    statusDiv.innerText = "Streaming... Please wait.";
+                    statusDiv.innerText = "Camera active. Streaming to server...";
                     sendFrames();
                 };
             } catch (err) {
                 console.error("Camera access error:", err);
-                statusDiv.innerText = "Error accessing camera. Check permissions.";
+                statusDiv.innerText = "Error accessing camera: " + err.message;
             }
         });
 
-        const TARGET_FPS = 8; // Adjust for bandwidth 
+        const TARGET_FPS = 5; // Lower FPS for cloud CPU to prevent overload
         
         function sendFrames() {
             if (!isStreaming) return;
@@ -77,15 +81,17 @@
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             
             // Compress to JPEG and send
-            const dataURL = canvas.toDataURL('image/jpeg', 0.6);
+            const dataURL = canvas.toDataURL('image/jpeg', 0.5);
             socket.emit('video_frame', { image: dataURL });
             
             setTimeout(sendFrames, 1000 / TARGET_FPS);
         }
 
         socket.on('processed_frame', (data) => {
-            processedImage.src = data.image;
-            statusDiv.innerText = "Tracking active";
+            if (data.image) {
+                processedImage.src = data.image;
+                statusDiv.innerText = "Tracking active";
+            }
             
             if (data.instruction) {
                 console.log("Instruction: ", data.instruction);
@@ -99,11 +105,26 @@
 
         socket.on('connect', () => {
             console.log('Connected to server');
+            statusDiv.innerText = "Connected to server. Press Start to begin.";
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('Connection error:', err);
+            statusDiv.innerText = "Connection error. Retrying...";
         });
 
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
-            statusDiv.innerText = "Disconnected from server.";
+            statusDiv.innerText = "Disconnected from server. Reconnecting...";
+        });
+
+        socket.on('reconnect', (attemptNumber) => {
+            console.log('Reconnected after', attemptNumber, 'attempts');
+            statusDiv.innerText = "Reconnected! Press Start to begin.";
+        });
+
+        socket.on('reconnect_failed', () => {
+            statusDiv.innerText = "Could not reconnect to server. Please refresh the page.";
         });
     </script>
 </body>
