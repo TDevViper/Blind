@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
             # Install python packages
             RUN pip install --no-cache-dir -r requirements_prod.txt
+
             # Pre-download YOLOv8 model
             RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
@@ -24,6 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             # Define the port environment variable
             ENV PORT=5000
 
-            # Run the application using gunicorn
-            CMD ["gunicorn", "--workers", "1", "--threads", "8", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
+            # Run the application using gunicorn with eventlet worker class
+            CMD ["gunicorn", "--workers", "1", "--worker-class", "eventlet", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
             
