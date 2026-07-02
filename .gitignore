@@ -11,3 +11,19 @@ env/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Visual Studio & C++ build artifacts
+.vs/
+x64/
+x86/
+Debug/
+Release/
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.user
+*.sln
+*.vcxproj
+*.vcxproj.filters
