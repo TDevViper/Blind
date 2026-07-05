@@ -26,9 +26,9 @@ def main():
             if not ret:
                 break
                 
-            # Mirror frame for natural interaction
-            frame = cv2.flip(frame, 1)
+            # Do not mirror frame; forward-facing mobility camera must preserve true physical left/right
             
+
             # 1. Get raw detections (YOLO + Motion Fusion)
             detected_entities = vision_engine.process_frame(frame)
 

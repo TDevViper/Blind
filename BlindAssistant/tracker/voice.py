@@ -9,46 +9,68 @@ FOCAL_LENGTH = 650.0
 ASSUMED_REAL_WIDTH = 0.4 
 SAFETY_BUFFER = 0.8 
 
+from tracker.safe_path import calculate_avoidance_instruction
+from tracker.occupancy_grid import OccupancyGrid
+from tracker.llm_reasoner import SpatialLLMReasoner
+
 class AudioFeedbackManager:
     def __init__(self):
         self.last_queued_time = 0
         self.speaker_script = os.path.join(os.path.dirname(__file__), "speaker.py")
+        self.current_process = None
+        self.last_risk_score = -1
+        self.current_instruction = None
+        self.llm_reasoner = SpatialLLMReasoner()
 
     def start(self):
         # Kept for compatibility with main.py
         pass
 
-    def speak(self, text):
+    def speak(self, text, risk_score=0):
         """Spawns a separate process to handle TTS, bypassing Windows thread freezing."""
-        subprocess.Popen([sys.executable, self.speaker_script, text])
+        self.current_instruction = text
+        if self.current_process and self.current_process.poll() is None:
+            # If higher risk alert comes in, terminate previous speech process
+            if risk_score > self.last_risk_score:
+                try:
+                    self.current_process.terminate()
+                except Exception:
+                    pass
+        self.current_process = subprocess.Popen([sys.executable, self.speaker_script, text])
         self.last_queued_time = time.time()
+        self.last_risk_score = risk_score
 
     def stop(self):
-        # Kept for compatibility
-        pass
+        if self.current_process and self.current_process.poll() is None:
+            try:
+                self.current_process.terminate()
+            except Exception:
+                pass
     
     def join(self):
-        pass
+        if self.current_process:
+            try:
+                self.current_process.wait(timeout=2.0)
+            except Exception:
+                pass
 
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import ASSUMED_REAL_WIDTH, FOCAL_LENGTH, FPS_ASSUMPTION, estimate_distance, calculate_horizontal_deviation
+from utils import ASSUMED_REAL_WIDTH, FOCAL_LENGTH, FPS_ASSUMPTION, estimate_distance, calculate_horizontal_deviation, get_real_width
 from tracker.collision import predict_collision
 from tracker.risk import assess_risk, RISK_CRITICAL, RISK_HIGH, RISK_MEDIUM, RISK_LOW
 from tracker.safe_path import calculate_avoidance_instruction
 from tracker.occupancy_grid import OccupancyGrid
 
-def evaluate_and_instruct(trackers, frame_width, tts_manager):
+def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION):
     """
     Evaluates all active trackers to find the highest risk obstacle.
     Then, generates and speaks a contextual navigation instruction for that object.
     Includes distance and approaching velocity in spoken alerts.
     """
-    if time.time() - tts_manager.last_queued_time < 4.0:
-        return
-
     highest_risk_score = -1
+    best_distance_z = float('inf')
     best_instruction = None
     best_debug_info = None
 
@@ -67,15 +89,16 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager):
         if w <= 0:
             continue
 
-        distance_z = estimate_distance(w)
+        real_w = get_real_width(label)
+        distance_z = estimate_distance(w, label)
         if distance_z > 5.0:
             continue
 
         cx = x + (w / 2)
         horizontal_deviation_x = calculate_horizontal_deviation(cx, frame_width, distance_z)
         
-        # Extract velocity
-        vx_mps, vz_mps = tracker.get_velocity_mps(FOCAL_LENGTH, ASSUMED_REAL_WIDTH, FPS_ASSUMPTION)
+        # Extract velocity using actual dynamic FPS and class width
+        vx_mps, vz_mps = tracker.get_velocity_mps(FOCAL_LENGTH, real_w, fps)
         
         # If moving away from the camera significantly, no harm! Ignore from critical voice alarm
         if vz_mps <= -0.1 and distance_z > 1.0:
@@ -92,39 +115,54 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager):
         if risk_weight < 2:
             continue
             
-        # If this is the most dangerous thing we've seen so far
-        if risk_weight > highest_risk_score or (risk_weight == highest_risk_score and distance_z < 2.0):
+        # Tie-breaker: if same risk weight, closest distance wins (best_distance_z)
+        if risk_weight > highest_risk_score or (risk_weight == highest_risk_score and distance_z < best_distance_z):
             highest_risk_score = risk_weight
+            best_distance_z = distance_z
             
             # Determine Action using the global occupancy grid
-            action, dist = calculate_avoidance_instruction(horizontal_deviation_x, ASSUMED_REAL_WIDTH, vx_mps, distance_z, grid)
+            action, dist = calculate_avoidance_instruction(horizontal_deviation_x, real_w, vx_mps, distance_z, grid)
             
             if action == 'none':
                 continue # Path is technically free, no instruction needed
             
-            # Format Natural Language with distance and approaching velocity
+            # Format Natural Language with distance and approaching velocity cleanly
             obj_name = label if label != "Moving Obstacle" else "Unknown obstacle"
             dist_str = f"at {distance_z:.1f} meters"
-            speed_str = f"approaching at {vz_mps:.1f} meters per second" if vz_mps > 0.1 else ""
+            speed_str = f" approaching at {vz_mps:.1f} meters per second" if vz_mps > 0.1 else ""
             
             # Convert meters to steps
             steps = max(1, int(round(dist / 0.6)))
             step_word = "step" if steps == 1 else "steps"
             
             if action == 'stop':
-                best_instruction = f"Warning! {obj_name} {dist_str} {speed_str}. Stop immediately!"
+                best_instruction = f"Warning! {obj_name} {dist_str}{speed_str}. Stop immediately!"
             elif action == 'move_left':
-                best_instruction = f"Caution! {obj_name} {dist_str} {speed_str}. Move {steps} {step_word} left."
+                best_instruction = f"Caution! {obj_name} {dist_str}{speed_str}. Move {steps} {step_word} left."
             elif action == 'move_right':
-                best_instruction = f"Caution! {obj_name} {dist_str} {speed_str}. Move {steps} {step_word} right."
+                best_instruction = f"Caution! {obj_name} {dist_str}{speed_str}. Move {steps} {step_word} right."
                 
             best_debug_info = f"[AI DEBUG] {label} | Dist: {distance_z:.1f}m | Speed: {vz_mps:.1f}m/s | Risk: {risk_level} | TTC: {ttc:.1f}s | Action: {action}"
 
     if best_instruction:
-        print(best_debug_info)
-        tts_manager.speak(best_instruction)
+        if hasattr(tts_manager, 'llm_reasoner') and tts_manager.llm_reasoner.enabled:
+            best_instruction = tts_manager.llm_reasoner.generate_instruction(trackers, best_instruction)
+        if hasattr(tts_manager, 'current_instruction'):
+            tts_manager.current_instruction = best_instruction
+        elapsed = time.time() - getattr(tts_manager, 'last_queued_time', 0)
+        last_score = getattr(tts_manager, 'last_risk_score', -1)
+        # Cooldown check: speak if 4.0s elapsed OR if a Critical hazard overrides a lower urgency alert
+        if elapsed >= 4.0 or (highest_risk_score >= 3 and highest_risk_score > last_score):
+            print(best_debug_info)
+            if hasattr(tts_manager, 'speak'):
+                try:
+                    tts_manager.speak(best_instruction, risk_score=highest_risk_score)
+                except TypeError:
+                    tts_manager.speak(best_instruction)
+            if hasattr(tts_manager, 'last_risk_score'):
+                tts_manager.last_risk_score = highest_risk_score
 
-def evaluate_all_trackers_telemetry(trackers, frame_width):
+def evaluate_all_trackers_telemetry(trackers, frame_width, fps=FPS_ASSUMPTION):
     """
     Evaluates all active trackers to generate structured telemetry for UI analytics.
     Ranks objects by collision urgency (Time-To-Collision and distance) to determine
@@ -140,10 +178,11 @@ def evaluate_all_trackers_telemetry(trackers, frame_width):
         if w <= 0:
             continue
             
-        distance_z = estimate_distance(w)
+        real_w = get_real_width(label)
+        distance_z = estimate_distance(w, label)
         cx = x + (w / 2)
         horizontal_deviation_x = calculate_horizontal_deviation(cx, frame_width, distance_z)
-        vx_mps, vz_mps = tracker.get_velocity_mps(FOCAL_LENGTH, ASSUMED_REAL_WIDTH, FPS_ASSUMPTION)
+        vx_mps, vz_mps = tracker.get_velocity_mps(FOCAL_LENGTH, real_w, fps)
         will_collide, ttc, intersect_x = predict_collision(horizontal_deviation_x, distance_z, vx_mps, vz_mps)
         risk_level = assess_risk(label, distance_z, ttc, will_collide)
         

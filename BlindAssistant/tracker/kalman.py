@@ -1,5 +1,9 @@
 import numpy as np
 from filterpy.kalman import KalmanFilter
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import MIN_TRACKING_FRAMES
 
 class MovingObjectTracker:
     """
@@ -30,6 +34,15 @@ class MovingObjectTracker:
             [0, 0, 0, 1, 0, 0, 0]
         ])
         
+        # Measurement Noise Covariance R (position px ~ 10, area px^2 ~ 100, aspect ~ 0.1)
+        self.kf.R = np.diag([10.0, 10.0, 100.0, 0.1])
+        
+        # Process Noise Covariance Q
+        self.kf.Q = np.diag([1.0, 1.0, 10.0, 0.01, 2.0, 2.0, 20.0])
+        
+        # Error Covariance P
+        self.kf.P *= 10.0
+        
         # Initialize state with the first bounding box observation
         x, y, w, h = bbox
         cx, cy = x + w/2, y + h/2
@@ -40,6 +53,7 @@ class MovingObjectTracker:
         
         self.label = label
         self.frames_without_update = 0
+        self.total_frames_tracked = 1
         self.last_z = None
         self.vz_mps_smoothed = 0.0
 
@@ -56,6 +70,7 @@ class MovingObjectTracker:
         Updates the state with a new bounding box observation.
         """
         self.frames_without_update = 0
+        self.total_frames_tracked += 1
         # Potentially update label if YOLO got a better read (e.g. from Unknown to Person)
         self.label = label 
         
@@ -87,8 +102,8 @@ class MovingObjectTracker:
         Extracts the velocity from the Kalman state and converts it from pixels/frame to meters/second.
         Returns: (velocity_x_mps, velocity_z_mps)
         """
-        if self.frames_without_update > 0:
-            return 0.0, 0.0 # Don't trust velocity if we are just extrapolating
+        if self.frames_without_update > 0 or self.total_frames_tracked < MIN_TRACKING_FRAMES:
+            return 0.0, 0.0 # Don't trust velocity if extrapolating or tracking fewer than MIN_TRACKING_FRAMES
             
         # State: [cx, cy, area, aspect, vx, vy, v_area]
         vx_pixels_per_frame = self.kf.x[4, 0]

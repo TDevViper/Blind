@@ -32,8 +32,10 @@ def predict_collision(horizontal_deviation_x, distance_z, velocity_x_mps, veloci
     # Project the X position at the Time-To-Collision
     predicted_x = horizontal_deviation_x + (velocity_x_mps * ttc)
     
-    # Check if the predicted X is within the user's bodily corridor (-0.75m to 0.75m)
-    if abs(predicted_x) < 0.75 or abs(horizontal_deviation_x) < 0.75:
+    # Check if the object is within the corridor (-0.75m to 0.75m) at t=0 or t=ttc,
+    # OR if its linear trajectory sweeps right across the corridor center (signs differ)
+    crosses_center = (horizontal_deviation_x * predicted_x) <= 0
+    if abs(predicted_x) < 0.75 or abs(horizontal_deviation_x) < 0.75 or crosses_center:
         return True, ttc, predicted_x
         
     return False, ttc, predicted_x

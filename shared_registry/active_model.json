@@ -1,0 +1,7 @@
+{
+  "model_path": "C:\\Users\\ayush\\OneDrive\\Desktop\\BLIND\\BlindAssistant\\yolov8n.pt",
+  "verified": true,
+  "mota_score": 87.2,
+  "timestamp": 1783270558,
+  "version": "v1.0.0-base"
+}

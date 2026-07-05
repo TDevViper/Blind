@@ -6,12 +6,23 @@
 # Multi-Object Tracking Accuracy (MOTA).
 # ==============================================================================
 
+import os
+import json
+
 def get_validation_metrics():
     """
     Returns the comprehensive ML validation benchmark suite for assistive tracking.
     All metrics are calculated against benchmark ground-truth assistive navigation datasets
     (e.g., indoors/outdoors dynamic obstacle trajectories).
     """
+    results_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_results.json")
+    if os.path.exists(results_path):
+        try:
+            with open(results_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[WARNING] Failed to load {results_path}, falling back to default benchmarks: {e}")
+
     # 1. Overall Detection Quality KPIs
     precision = 0.892
     recall = 0.865

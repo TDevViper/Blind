@@ -1,7 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import ASSUMED_REAL_WIDTH, FOCAL_LENGTH, FPS_ASSUMPTION, estimate_distance, calculate_horizontal_deviation
+from utils import ASSUMED_REAL_WIDTH, FOCAL_LENGTH, FPS_ASSUMPTION, estimate_distance, calculate_horizontal_deviation, get_real_width
 
 class OccupancyGrid:
     """
@@ -35,17 +35,18 @@ class OccupancyGrid:
             if w <= 0:
                 continue
 
-            distance_z = estimate_distance(w)
-            # If an object is more than 3 meters away, we don't consider it blocking right now
-            if distance_z > 3.0:
+            real_w = get_real_width(tracker.label)
+            distance_z = estimate_distance(w, tracker.label)
+            # Match voice.py risk evaluation horizon: objects out to 5.0 meters are considered
+            if distance_z > 5.0:
                 continue
 
             cx = x + (w / 2)
             horizontal_deviation_x = calculate_horizontal_deviation(cx, self.frame_width, distance_z)
             
             # The object spans from (center - width/2) to (center + width/2)
-            obj_left_edge = horizontal_deviation_x - (ASSUMED_REAL_WIDTH / 2)
-            obj_right_edge = horizontal_deviation_x + (ASSUMED_REAL_WIDTH / 2)
+            obj_left_edge = horizontal_deviation_x - (real_w / 2)
+            obj_right_edge = horizontal_deviation_x + (real_w / 2)
             
             # Check which zones are blocked by this object
             for zone_name, (z_left, z_right) in self.zone_boundaries.items():

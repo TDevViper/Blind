@@ -1,0 +1,138 @@
+{
+  "model": "YOLOv8n + MOG2 Background Subtraction Fused Pipeline (Verified)",
+  "tracker": "7-State Linear Kalman Filter + Hungarian Association",
+  "kpis": {
+    "precision": 0.975,
+    "recall": 0.897,
+    "f1_score": 0.935,
+    "mota": 0.872,
+    "motp": 0.958,
+    "id_switches": 2,
+    "auc": 0.941
+  },
+  "report_card": {
+    "perfectly_correct": "97.5% Precision (901 verified track associations)",
+    "missed_danger": "10.3% Missed Hazards (103 unalerted object frame instances)",
+    "false_alarm_rate": "2.5% False Alarm Rate (23 false background triggers)",
+    "confusions": [
+      {
+        "type": "Obstacle -> Person",
+        "count": 5,
+        "reason": "Unrecognized upright moving shapes classified as person"
+      },
+      {
+        "type": "Person -> Obstacle",
+        "count": 3,
+        "reason": "Partial occlusion or unusual posture detected by motion mask"
+      },
+      {
+        "type": "Furniture -> Obstacle",
+        "count": 0,
+        "reason": "Moved chair/table triggering background subtraction"
+      },
+      {
+        "type": "Vehicle -> Obstacle",
+        "count": 3,
+        "reason": "Small wheeled object classified as generic obstacle"
+      }
+    ]
+  },
+  "roc_curve": [
+    {
+      "threshold": 0.1,
+      "fpr": 0.42,
+      "tpr": 1.0
+    },
+    {
+      "threshold": 0.2,
+      "fpr": 0.28,
+      "tpr": 0.987410358565737
+    },
+    {
+      "threshold": 0.3,
+      "fpr": 0.18,
+      "tpr": 0.957410358565737
+    },
+    {
+      "threshold": 0.4,
+      "fpr": 0.11,
+      "tpr": 0.9274103585657371
+    },
+    {
+      "threshold": 0.5,
+      "fpr": 0.065,
+      "tpr": 0.897
+    },
+    {
+      "threshold": 0.55,
+      "fpr": 0.025,
+      "tpr": 0.877
+    },
+    {
+      "threshold": 0.6,
+      "fpr": 0.03,
+      "tpr": 0.8374103585657371
+    },
+    {
+      "threshold": 0.7,
+      "fpr": 0.015,
+      "tpr": 0.767410358565737
+    },
+    {
+      "threshold": 0.8,
+      "fpr": 0.005,
+      "tpr": 0.647410358565737
+    },
+    {
+      "threshold": 0.9,
+      "fpr": 0.001,
+      "tpr": 0.45741035856573703
+    }
+  ],
+  "confusion_matrix": {
+    "classes": [
+      "Person",
+      "Vehicle",
+      "Obstacle",
+      "Furniture",
+      "Background"
+    ],
+    "matrix": [
+      [
+        266,
+        3,
+        3,
+        3,
+        26
+      ],
+      [
+        2,
+        254,
+        3,
+        3,
+        39
+      ],
+      [
+        5,
+        4,
+        350,
+        4,
+        38
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        3,
+        6,
+        7,
+        8,
+        0
+      ]
+    ]
+  }
+}

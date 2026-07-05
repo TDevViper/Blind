@@ -7,24 +7,20 @@ WORKDIR /app
 # Install minimal system dependencies needed for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
-        libgl1 \
-            && rm -rf /var/lib/apt/lists/*
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
 
-            # Copy the production requirements file
-            COPY requirements_prod.txt ./
+# Copy the production requirements file
+COPY requirements_prod.txt ./
 
-            # Install python packages
-            RUN pip install --no-cache-dir -r requirements_prod.txt
+# Install python packages
+RUN pip install --no-cache-dir -r requirements_prod.txt
 
-            # Pre-download YOLOv8 model
-            RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+# Copy all the application files into the container
+COPY . .
 
-            # Copy all the application files into the container
-            COPY . .
+# Define the port environment variable
+ENV PORT=5000
 
-            # Define the port environment variable
-            ENV PORT=5000
-
-            # Run the application using gunicorn with custom eventlet worker class
-            CMD ["gunicorn", "--workers", "1", "--worker-class", "custom_worker.CustomEventletWorker", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]
-            
+# Run the application using gunicorn with custom eventlet worker class
+CMD ["gunicorn", "--workers", "1", "--worker-class", "custom_worker.CustomEventletWorker", "--timeout", "120", "--bind", "0.0.0.0:5000", "app:app"]

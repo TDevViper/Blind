@@ -30,14 +30,38 @@ def calculate_iou(box_a, box_b):
     union_area = float(box_a_area + box_b_area - inter_area)
     return inter_area / union_area if union_area > 0 else 0
 
-def estimate_distance(pixel_width):
+CLASS_WIDTHS = {
+    "person": 0.45,
+    "vehicle": 1.8,
+    "car": 1.8,
+    "bus": 2.5,
+    "truck": 2.5,
+    "motorcycle": 0.6,
+    "bicycle": 0.6,
+    "chair": 0.5,
+    "table": 1.2,
+    "couch": 1.8,
+    "dog": 0.3,
+    "cat": 0.2,
+    "moving obstacle": 0.4,
+    "unknown obstacle": 0.4
+}
+
+def get_real_width(label=None):
+    """Returns the assumed real-world width in meters based on object class label."""
+    if not label:
+        return ASSUMED_REAL_WIDTH
+    return CLASS_WIDTHS.get(str(label).lower(), ASSUMED_REAL_WIDTH)
+
+def estimate_distance(pixel_width, label=None):
     """
     Estimates the Z-distance (depth) to the object using Monocular Vision.
     Z = (Focal_Length * Real_Width) / Pixel_Width
     """
     if pixel_width <= 0:
         return float('inf')
-    return (ASSUMED_REAL_WIDTH * FOCAL_LENGTH) / pixel_width
+    real_width = get_real_width(label)
+    return (real_width * FOCAL_LENGTH) / pixel_width
 
 def calculate_horizontal_deviation(center_x, frame_width, distance_z):
     """

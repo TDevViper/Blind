@@ -6,7 +6,7 @@
 // pipeline using OpenCV (C++ API) and Windows Native Speech API (SAPI).
 //
 // Features:
-// 1. Real-time Video Capture & Mirroring via OpenCV VideoCapture
+// 1. Real-time Video Capture via OpenCV VideoCapture (Forward-Facing, No Mirroring)
 // 2. Hybrid Object Detection (OpenCV DNN for YOLOv8 ONNX + MOG2 Motion Segmentation)
 // 3. Monocular Depth Estimation & Lateral Deviation Math
 // 4. Kalman Filtering & IoU Bounding Box Association
@@ -44,7 +44,7 @@ namespace Config {
     const float ASSUMED_REAL_WIDTH = 0.4f;    // Assumed real-world width in meters
     const float IOU_THRESHOLD = 0.15f;        // Minimum IoU for bounding box association
     const int   MAX_LOST_FRAMES = 8;          // Remove tracker if undetected for N frames
-    const float ALERT_DISTANCE_THRESHOLD = 2.5f; // Speak alert if hazard is closer than 2.5m
+    const float ALERT_DISTANCE_THRESHOLD = 5.0f; // Speak alert if hazard is closer than 5.0m
 }
 
 // ============================================================================
@@ -227,8 +227,7 @@ int main() {
     while (cap.read(frame)) {
         if (frame.empty()) break;
 
-        // Mirror frame horizontally for intuitive interaction
-        cv::flip(frame, frame, 1);
+        // Forward-facing mobility camera: do not mirror frame to preserve true physical left/right
 
         // --------------------------------------------------------------------
         // Step 1: Motion Segmentation & Detection (MOG2 Background Subtraction)

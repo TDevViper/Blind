@@ -4,13 +4,13 @@ RISK_MEDIUM = "Medium"
 RISK_HIGH = "High"
 RISK_CRITICAL = "Critical"
 
-LETHAL_CLASSES = {"car", "bus", "truck", "motorcycle", "train", "airplane"}
+LETHAL_CLASSES = {"car", "bus", "truck", "motorcycle", "bicycle", "vehicle", "train", "airplane"}
 
 def assess_risk(label, distance_z, time_to_collision, will_collide):
     """
     Categorizes the danger level based on distance, TTC, and object lethality.
     """
-    is_lethal = label in LETHAL_CLASSES
+    is_lethal = str(label).lower() in LETHAL_CLASSES
     
     if not will_collide:
         # Even if not on a direct collision course, objects close by are High/Medium risk
