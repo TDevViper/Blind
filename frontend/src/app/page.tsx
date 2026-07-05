@@ -128,7 +128,7 @@ export default function Home() {
 
   // Initialize Socket.IO
   useEffect(() => {
-    const backendUrl = "http://localhost:5000";
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
     socketRef.current = io(backendUrl, { transports: ["polling", "websocket"], upgrade: true });
 
     socketRef.current.on("connect", () => {
@@ -222,7 +222,8 @@ export default function Home() {
   const toggleLlmMode = () => {
     const nextVal = !useLlm;
     setUseLlm(nextVal);
-    fetch("http://localhost:5000/api/llm_mode", {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+    fetch(`${backendUrl}/api/llm_mode`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: nextVal }),
@@ -512,7 +513,8 @@ export default function Home() {
             <button
               className="btn-secondary"
               onClick={() => {
-                fetch("http://localhost:5000/api/metrics").then(r => r.json()).then(d => {
+                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+                fetch(`${backendUrl}/api/metrics`).then(r => r.json()).then(d => {
                   if (d && d.mota) setMetrics(d);
                   speak("ML benchmark report refreshed.");
                 });
@@ -542,7 +544,8 @@ export default function Home() {
             <button
               className="btn-secondary"
               onClick={() => {
-                fetch("http://localhost:5000/api/harvested_stats").then(r => r.json()).then(d => {
+                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+                fetch(`${backendUrl}/api/harvested_stats`).then(r => r.json()).then(d => {
                   if (d) setHarvesterStats(d);
                   speak(`Total harvested samples: ${d.total_harvested || 0}`);
                 });
