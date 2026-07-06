@@ -14,7 +14,7 @@ The native C++ port (`BlindAssistant_VC.cpp`) is a standalone, ultra-low latency
 
 1. **Open developer Command Prompt or PowerShell** and navigate to the root `BLIND` project directory:
    ```powershell
-   cd c:\Users\ayush\OneDrive\Desktop\BLIND
+   cd path\to\BLIND
    ```
 
 2. **Create a build directory**:

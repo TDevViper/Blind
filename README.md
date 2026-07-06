@@ -65,7 +65,11 @@ Below is an exhaustive breakdown of every file and directory in this project, ou
 | `custom_worker.py` | **Deployment Utility** | Implements `CustomEventletWorker`, a specialized Gunicorn worker class designed for cloud deployments (e.g., Render, AWS). It restricts monkey-patching strictly to `socket` and `select`, preventing PyTorch C++ multithreading deadlocks and CPU-info crashes during YOLO model initialization. Includes an informative error fallback for Gunicorn v25+. |
 | `BlindAssistant_VC.cpp` | **Native C++ Port** | Complete standalone Visual C++ implementation of the tracking pipeline using OpenCV C++ API and Windows Native Speech API (SAPI) for zero-latency offline assistance. |
 | `CMakeLists.txt` & `BUILD_CPP.md` | **C++ Build System** | CMake configuration and detailed build guide for compiling and executing `BlindAssistant_VC.cpp` on Windows with Visual Studio 2019/2022. |
-| `verify_pipeline.py` | **ML Evaluation Suite** | Automated simulation and validation script that runs the tracking engine against ground-truth trajectories, computing real Precision, Recall, F1, MOTA, and ID Switches, outputting to `validation_results.json`. |
+| `verify_pipeline.py` | **Synthetic Benchmark Suite** | Automated simulation and validation script that runs the tracking engine against 500-frame synthetic ground-truth trajectories, computing Precision, Recall, F1, MOTA, and ID Switches, outputting to `validation_results.json`. |
+| `test_safety_case.py` | **Safety Verification Suite** | Comprehensive automated verification suite verifying 5 core safety asserts: multi-session YOLO concurrency thread locking, Kalman occlusion gap closing velocity normalization, `±0.75m` corridor boundaries, critical voice cooldown overrides, and anomaly harvester storage limits. |
+| `render.yaml` | **Cloud Backend Config** | Render Blueprint specification configuring Gunicorn + Eventlet Python backend deployment with pre-installed headless OpenCV and PyTorch. |
+| `vercel.json` & `frontend/vercel.json` | **Cloud Frontend Config** | Vercel deployment configurations optimizing Next.js routing, build commands, and output caching for the Cyber-Cockpit UI. |
+| `deploy.ps1` & `DEPLOYMENT_GUIDE.md` | **Deployment Automation** | One-command PowerShell Git push automation script and exhaustive step-by-step production manual deployment documentation for Vercel and Render. |
 | `Dockerfile` | **Containerization** | Container build recipe based on `python:3.10-slim`. Pre-installs system graphics dependencies (`libglib2.0-0`, `libgl1`), installs production requirements, and launches the application via Gunicorn. |
 | `requirements.txt` | **Dependencies** | Standard Python dependency specifications for local desktop development (`ultralytics`, `opencv-python`, `numpy`, `filterpy`, `pyttsx3`, `scipy`). |
 | `requirements_prod.txt` | **Dependencies** | Optimized dependencies tailored for headless Linux cloud environments and Docker production engines (uses `opencv-python-headless`, `eventlet`, `gunicorn`, and caps `torch<2.6.0` for stability). |
@@ -220,18 +224,40 @@ To run the entire suite inside an isolated Docker container:
 
 ---
 
-## 📊 Benchmarks & ML Validation Metrics
+### Mode E: Production Cloud Deployment (Vercel + Render)
+To deploy the split-architecture modern web co-pilot to production clouds:
 
-The BLIND system includes an empirical evaluation suite (`verify_pipeline.py`) that benchmarks YOLOv8 + Kalman tracking against ground-truth dynamic obstacle trajectories. Running `python verify_pipeline.py` generates `validation_results.json`, which is dynamically served to the web dashboard report cards. Key verified performance metrics include:
+1. **Backend (Render Python / SocketIO Service)**:
+   - Automated via `render.yaml` Blueprint or manual deploy in Render dashboard using `gunicorn -k custom_worker.CustomEventletWorker -w 1 -b 0.0.0.0:$PORT app:app --timeout 120` against `requirements_prod.txt`.
+2. **Frontend (Vercel Next.js Cyber-Cockpit)**:
+   - Automated via `vercel.json` targeting the `frontend/` directory.
+   - Configure environment variable `NEXT_PUBLIC_BACKEND_URL` pointing to your Render backend URL.
+   - See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and run `.\deploy.ps1` for one-command deployment automation.
+
+---
+
+## 📊 Synthetic Benchmarks & ML Validation Metrics
+
+The BLIND system includes a synthetic evaluation suite (`verify_pipeline.py`) that benchmarks YOLOv8 + Kalman tracking against simulated 500-frame ground-truth dynamic obstacle trajectories. Running `python verify_pipeline.py` generates `validation_results.json`, which is dynamically served to the web dashboard report cards. Key verified performance metrics on this synthetic test suite include:
 
 | Metric | Score / Value | Description |
 | :--- | :---: | :--- |
-| **Detection Precision** | `97.5%` | High accuracy in object classification across test trajectories (901 verified track associations). |
+| **Detection Precision** | `97.5%` | High accuracy in object classification across synthetic test trajectories (901 verified track associations). |
 | **Detection Recall** | `89.7%` | Reliable hazard discovery with minimal false negatives (only 10.3% missed hazard frames). |
 | **F1-Score** | `0.935` | Balanced harmonic mean between precision and recall. |
 | **MOTA (Tracking Accuracy)** | `87.2%` | Multi-Object Tracking Accuracy evaluating ID switches and tracking consistency. |
 | **MOTP (Tracking Precision)** | `0.958` | Bounding box spatial overlap accuracy (IoU) during rapid motion. |
 | **System Latency** | `~30-45 ms` | Average end-to-end processing time per frame on standard CPU hardware. |
+
+---
+
+## 🗺️ Safety Roadmap & Future Architecture
+
+To address the structural safety ceilings of monocular vision and prepare for global clinical deployment, our technical roadmap focuses on three foundational pillars:
+
+1. **Multimodal Sensor Fusion Roadmap (ToF / Ultrasonic / LiDAR)**: Overcoming the inherent physical ceilings of monocular vision depth estimation ($Z = f \cdot W / w$). Integrating hardware Time-of-Flight (ToF) sensors and ultrasonic transducers to provide millimeter-accurate physical distance measurements regardless of object class assumptions, lighting conditions, or partial occlusions.
+2. **Internationalization (i18n) & Localized Speech Roadmap**: Expanding the WebTTS and SAPI speech synthesis pipelines to support multi-lingual voice guidance (Spanish, Mandarin, Hindi, Arabic, French, German, Japanese) with localized spatial terms and culturally adapted speech rate controls.
+3. **Orientation & Mobility (O&M) Institutional Evaluation Protocol**: Partnering with certified O&M specialists and schools for the visually impaired to conduct structured human-factors testing. Evaluating navigation confidence, cognitive load, auditory fatigue, and obstacle evasion success rates in standardized indoor/outdoor obstacle courses.
 
 ---
 

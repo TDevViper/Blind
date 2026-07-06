@@ -36,6 +36,8 @@ CLASS_WIDTHS = {
     "car": 1.8,
     "bus": 2.5,
     "truck": 2.5,
+    "train": 3.0,
+    "airplane": 4.0,
     "motorcycle": 0.6,
     "bicycle": 0.6,
     "chair": 0.5,

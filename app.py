@@ -39,12 +39,17 @@ socketio = SocketIO(app, cors_allowed_origins=cors_origins, async_mode=async_mod
 
 @app.after_request
 def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
+    origins = os.environ.get("CORS_ORIGINS", "*")
+    response.headers.add('Access-Control-Allow-Origin', origins)
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
 print("[INFO] Initializing Vision Pipeline (YOLO)...")
+import threading
+from ultralytics import YOLO
+from tracker.motion import ScopedLegacyLoad
+
 # Check inside BlindAssistant first, then project root, then let ultralytics download
 project_root = os.path.dirname(os.path.abspath(__file__))
 yolo_path = os.path.join(project_root, 'BlindAssistant', 'yolov8n.pt')
@@ -54,9 +59,11 @@ if not os.path.exists(yolo_path):
     yolo_path = "yolov8n.pt"  # let ultralytics download it
 
 print(f"[INFO] Using YOLO model at: {yolo_path}")
-vision_engine = VisionPipeline(yolo_path)
+inference_lock = threading.Lock()
+with ScopedLegacyLoad():
+    shared_yolo_model = YOLO(yolo_path)
+
 harvester = ActiveLearningHarvester()
-global_llm_enabled = False
 
 # Per-session state management keyed by request.sid
 user_sessions = {}
@@ -68,7 +75,7 @@ class WebTTSManager:
         self.current_instruction = None
         self.last_risk_score = -1
         self.llm_reasoner = SpatialLLMReasoner()
-        self.llm_reasoner.enabled = global_llm_enabled
+        self.llm_reasoner.enabled = False
 
     def speak(self, text, risk_score=0):
         self.current_instruction = text
@@ -100,24 +107,45 @@ def harvested_stats():
 
 @app.route('/api/llm_mode', methods=['GET', 'POST'])
 def llm_mode():
-    global global_llm_enabled
+    sid = request.args.get('sid')
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
-        global_llm_enabled = bool(data.get('enabled', not global_llm_enabled))
-        for sid, sdata in user_sessions.items():
-            if 'tts_manager' in sdata and hasattr(sdata['tts_manager'], 'llm_reasoner'):
-                sdata['tts_manager'].llm_reasoner.enabled = global_llm_enabled
-    return {'enabled': global_llm_enabled}, 200
+        sid = data.get('sid', sid)
+        if sid and sid in user_sessions:
+            current = user_sessions[sid]['tts_manager'].llm_reasoner.enabled
+            user_sessions[sid]['tts_manager'].llm_reasoner.enabled = bool(data.get('enabled', not current))
+    enabled = user_sessions[sid]['tts_manager'].llm_reasoner.enabled if sid and sid in user_sessions else False
+    return {'enabled': enabled}, 200
+
+@socketio.on('toggle_llm')
+def handle_toggle_llm(data=None):
+    sid = request.sid
+    if sid in user_sessions:
+        current = user_sessions[sid]['tts_manager'].llm_reasoner.enabled
+        new_val = bool(data.get('enabled', not current)) if isinstance(data, dict) else not current
+        user_sessions[sid]['tts_manager'].llm_reasoner.enabled = new_val
+        emit('llm_status', {'enabled': new_val})
+
+@socketio.on('toggle_harvesting')
+def handle_toggle_harvesting(data=None):
+    sid = request.sid
+    if sid in user_sessions:
+        current = user_sessions[sid].get('harvest_consent', False)
+        new_val = bool(data.get('enabled', not current)) if isinstance(data, dict) else not current
+        user_sessions[sid]['harvest_consent'] = new_val
+        emit('harvesting_status', {'enabled': new_val})
 
 @socketio.on('connect')
 def handle_connect():
     sid = request.sid
     user_sessions[sid] = {
+        'vision_engine': VisionPipeline(yolo_path, yolo_model=shared_yolo_model, lock=inference_lock),
         'active_trackers': [],
         'is_processing_frame': False,
         'tts_manager': WebTTSManager(),
         'last_frame_time': time.time(),
-        'fps': 15.0
+        'fps': 15.0,
+        'harvest_consent': False
     }
     print(f"[INFO] Client connected via WebSocket (sid: {sid})")
 
@@ -133,11 +161,13 @@ def handle_video_frame(data):
     session_data = user_sessions.get(sid)
     if not session_data:
         session_data = {
+            'vision_engine': VisionPipeline(yolo_path, yolo_model=shared_yolo_model, lock=inference_lock),
             'active_trackers': [],
             'is_processing_frame': False,
             'tts_manager': WebTTSManager(),
             'last_frame_time': time.time(),
-            'fps': 15.0
+            'fps': 15.0,
+            'harvest_consent': False
         }
         user_sessions[sid] = session_data
 
@@ -147,7 +177,8 @@ def handle_video_frame(data):
 
     session_data['is_processing_frame'] = True
     try:
-        now = time.time()
+        start_time = time.time()
+        now = start_time
         dt = now - session_data['last_frame_time']
         if dt > 0.001:
             raw_fps = 1.0 / dt
@@ -155,6 +186,7 @@ def handle_video_frame(data):
         session_data['last_frame_time'] = now
         current_fps = session_data['fps']
 
+        vision_engine = session_data['vision_engine']
         active_trackers = session_data['active_trackers']
         tts_manager = session_data['tts_manager']
 
@@ -195,7 +227,8 @@ def handle_video_frame(data):
         session_data['active_trackers'] = active_trackers
         
         # Harvest active learning anomalies for FineTuneKit
-        harvester.evaluate_and_harvest(frame, getattr(vision_engine, 'last_raw_detections', []), active_trackers)
+        if session_data.get('harvest_consent', False):
+            harvester.evaluate_and_harvest(frame, getattr(vision_engine, 'last_raw_detections', []), active_trackers)
         
         # 5. Evaluate Risk & Get Instruction
         tts_manager.current_instruction = None # Reset for this frame
@@ -229,11 +262,14 @@ def handle_video_frame(data):
         encoded_image = base64.b64encode(buffer).decode('utf-8')
         data_url = 'data:image/jpeg;base64,' + encoded_image
         
+        latency_ms = round((time.time() - start_time) * 1000.0, 1)
         # Send back to client with full real-time telemetry
         emit('processed_frame', {
             'image': data_url,
             'instruction': tts_manager.current_instruction,
-            'telemetry': telemetry
+            'telemetry': telemetry,
+            'fps': round(current_fps, 1),
+            'latency_ms': latency_ms
         })
     except Exception as e:
         print(f"[ERROR] Frame processing failed for sid {sid}: {e}")

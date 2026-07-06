@@ -1,3 +1,11 @@
+"""
+Synthetic Tracking Benchmark Suite for BLIND Assistive Navigation Platform.
+
+Simulates 500 frames of dynamic object trajectories (approaching pedestrians, crossing vehicles,
+and stationary furniture) to evaluate Kalman Filter tracking stability, Hungarian association accuracy,
+and MOTA/Precision benchmarks in a controlled synthetic environment.
+"""
+
 import os
 import json
 import random
@@ -11,7 +19,7 @@ from tracker.hungarian import associate_detections_to_trackers
 from utils import calculate_iou
 
 def run_validation_suite():
-    print("[INFO] Starting ML Detection Quality & Tracking Stability Benchmark Suite...")
+    print("[INFO] Starting Synthetic Tracking Benchmark Suite (500-Frame Simulation)...")
     random.seed(42)
     np.random.seed(42)
 

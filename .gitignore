@@ -27,3 +27,13 @@ Release/
 *.sln
 *.vcxproj
 *.vcxproj.filters
+
+# Node.js and Next.js frontend build artifacts
+node_modules/
+frontend/node_modules/
+frontend/.next/
+.next/
+
+# Harvested test images and temporary logs
+shared_registry/datasets/images/*.jpg
+*.log

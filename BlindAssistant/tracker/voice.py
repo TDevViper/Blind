@@ -71,6 +71,7 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
     """
     highest_risk_score = -1
     best_distance_z = float('inf')
+    best_ttc = float('inf')
     best_instruction = None
     best_debug_info = None
 
@@ -97,8 +98,18 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
         cx = x + (w / 2)
         horizontal_deviation_x = calculate_horizontal_deviation(cx, frame_width, distance_z)
         
+        # Annotate tracker attributes for LLM reasoner and downstream analytics
+        tracker.distance = distance_z
+        if horizontal_deviation_x < -0.4:
+            tracker.zone = "LEFT"
+        elif horizontal_deviation_x > 0.4:
+            tracker.zone = "RIGHT"
+        else:
+            tracker.zone = "CENTER"
+        
         # Extract velocity using actual dynamic FPS and class width
         vx_mps, vz_mps = tracker.get_velocity_mps(FOCAL_LENGTH, real_w, fps)
+        tracker.velocity = (vx_mps, vz_mps)
         
         # If moving away from the camera significantly, no harm! Ignore from critical voice alarm
         if vz_mps <= -0.1 and distance_z > 1.0:
@@ -106,6 +117,7 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
         
         # Predict Collision
         will_collide, ttc, intersect_x = predict_collision(horizontal_deviation_x, distance_z, vx_mps, vz_mps)
+        tracker.ttc = ttc
         
         # Assess Risk
         risk_level = assess_risk(label, distance_z, ttc, will_collide)
@@ -119,6 +131,7 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
         if risk_weight > highest_risk_score or (risk_weight == highest_risk_score and distance_z < best_distance_z):
             highest_risk_score = risk_weight
             best_distance_z = distance_z
+            best_ttc = ttc
             
             # Determine Action using the global occupancy grid
             action, dist = calculate_avoidance_instruction(horizontal_deviation_x, real_w, vx_mps, distance_z, grid)
@@ -146,13 +159,31 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
 
     if best_instruction:
         if hasattr(tts_manager, 'llm_reasoner') and tts_manager.llm_reasoner.enabled:
-            best_instruction = tts_manager.llm_reasoner.generate_instruction(trackers, best_instruction)
+            for t in trackers:
+                if not hasattr(t, 'distance'):
+                    box = t.get_current_box()
+                    w = box[2] if box else 0
+                    t.distance = estimate_distance(w, t.label) if w > 0 else 99.0
+                if not hasattr(t, 'velocity'):
+                    t.velocity = t.get_velocity_mps(FOCAL_LENGTH, get_real_width(t.label), fps)
+                if not hasattr(t, 'zone'):
+                    t.zone = "CENTER"
+                if not hasattr(t, 'ttc'):
+                    t.ttc = 99.0
+            try:
+                best_instruction = tts_manager.llm_reasoner.generate_instruction(trackers, best_instruction)
+            except Exception as e:
+                print(f"[WARNING] Spatial LLM Reasoner fallback triggered due to error/timeout: {e}")
         if hasattr(tts_manager, 'current_instruction'):
             tts_manager.current_instruction = best_instruction
         elapsed = time.time() - getattr(tts_manager, 'last_queued_time', 0)
         last_score = getattr(tts_manager, 'last_risk_score', -1)
-        # Cooldown check: speak if 4.0s elapsed OR if a Critical hazard overrides a lower urgency alert
-        if elapsed >= 4.0 or (highest_risk_score >= 3 and highest_risk_score > last_score):
+        last_ttc = getattr(tts_manager, 'last_ttc', float('inf'))
+        last_dist = getattr(tts_manager, 'last_distance', float('inf'))
+        
+        # Cooldown check: speak if 4.0s elapsed OR if escalating risk score OR escalating severity within Critical tier (shorter TTC or closer distance)
+        critical_escalated = (highest_risk_score == 3 and (best_ttc < last_ttc * 0.6 or best_distance_z < last_dist - 1.0 or best_ttc < 1.0))
+        if elapsed >= 4.0 or (highest_risk_score >= 3 and highest_risk_score > last_score) or critical_escalated:
             print(best_debug_info)
             if hasattr(tts_manager, 'speak'):
                 try:
@@ -161,6 +192,8 @@ def evaluate_and_instruct(trackers, frame_width, tts_manager, fps=FPS_ASSUMPTION
                     tts_manager.speak(best_instruction)
             if hasattr(tts_manager, 'last_risk_score'):
                 tts_manager.last_risk_score = highest_risk_score
+            tts_manager.last_ttc = best_ttc
+            tts_manager.last_distance = best_distance_z
 
 def evaluate_all_trackers_telemetry(trackers, frame_width, fps=FPS_ASSUMPTION):
     """

@@ -81,6 +81,16 @@ class ModelHotSwapper:
                         abs_path = ROOT_DIR / new_path
                     
                     if abs_path.exists():
+                        expected_sha256 = data.get("sha256")
+                        if expected_sha256:
+                            import hashlib
+                            h = hashlib.sha256()
+                            with open(abs_path, "rb") as mf:
+                                while chunk := mf.read(8192):
+                                    h.update(chunk)
+                            if h.hexdigest().lower() != str(expected_sha256).lower():
+                                print(f"[MODEL MANAGER ERROR] SHA256 mismatch for {abs_path}! Skipping hot-swap.")
+                                return None
                         print(f"[MODEL MANAGER] Hot-swap triggered! New verified model: {abs_path} (MOTA: {mota}%)")
                         self.current_model_path = str(abs_path)
                         return str(abs_path)

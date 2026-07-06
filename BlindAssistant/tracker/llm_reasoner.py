@@ -44,7 +44,7 @@ class SpatialLLMReasoner:
             vel_x, vel_z = getattr(t, "velocity", (0.0, 0.0))
             telemetry_list.append({
                 "label": t.label,
-                "distance": round(t.distance, 1),
+                "distance": round(getattr(t, "distance", 99.0), 1),
                 "zone": getattr(t, "zone", "CENTER"),
                 "ttc": round(getattr(t, "ttc", 99.0), 1),
                 "approach_speed": round(abs(vel_z), 1)

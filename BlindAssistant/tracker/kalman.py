@@ -56,6 +56,7 @@ class MovingObjectTracker:
         self.total_frames_tracked = 1
         self.last_z = None
         self.vz_mps_smoothed = 0.0
+        self.frames_since_last_z = 1
 
     def predict(self):
         """
@@ -63,6 +64,7 @@ class MovingObjectTracker:
         """
         self.kf.predict()
         self.frames_without_update += 1
+        self.frames_since_last_z += 1
         return self.get_current_box()
 
     def update(self, bbox, label):
@@ -124,7 +126,8 @@ class MovingObjectTracker:
         # Z velocity (approaching/leaving): calculate rate of change of depth
         if self.last_z is not None:
             # Positive vz means approaching (distance Z is decreasing over time)
-            raw_vz = (self.last_z - current_z) * fps
+            # Normalize by elapsed frames since last Z measurement to prevent artificial closing velocity spikes after tracking gaps
+            raw_vz = (self.last_z - current_z) * (fps / max(1, self.frames_since_last_z))
             self.vz_mps_smoothed = 0.4 * self.vz_mps_smoothed + 0.6 * raw_vz
         else:
             # Estimate from area rate of change if we don't have previous depth yet
@@ -136,4 +139,5 @@ class MovingObjectTracker:
                 self.vz_mps_smoothed = 0.0
                 
         self.last_z = current_z
+        self.frames_since_last_z = 1
         return round(float(vx_mps), 2), round(float(self.vz_mps_smoothed), 2)

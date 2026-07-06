@@ -26,14 +26,14 @@ if not JSONL_PATH.exists():
     JSONL_PATH.touch()
 
 class ActiveLearningHarvester:
-    def __init__(self, min_conf=0.25, max_conf=0.50, min_approach_vel=-0.5, cooldown_sec=2.0):
+    def __init__(self, min_conf=0.25, max_conf=0.50, min_approach_vel=0.5, cooldown_sec=2.0):
         """
         Initialize the active learning harvester.
         
         Args:
             min_conf (float): Minimum detection confidence to trigger harvesting.
             max_conf (float): Maximum detection confidence (uncertainty window).
-            min_approach_vel (float): Velocity threshold (m/s) for approaching motion hazards.
+            min_approach_vel (float): Velocity threshold (m/s) for approaching motion hazards (positive means approaching).
             cooldown_sec (float): Minimum seconds between harvesting similar objects to avoid flooding.
         """
         self.min_conf = min_conf
@@ -100,19 +100,33 @@ class ActiveLearningHarvester:
         # 2. Check for unclassified MOG2 motion hazards or fast approaching objects
         if not should_harvest:
             for t in trackers:
-                if t.label == "Moving Obstacle" and getattr(t, "hits", 0) >= 5:
+                box = t.get_current_box() if hasattr(t, "get_current_box") else getattr(t, "box", [0, 0, 10, 10])
+                hits = getattr(t, "total_frames_tracked", 0)
+                if t.label == "Moving Obstacle" and hits >= 5:
                     should_harvest = True
-                    harvest_reason = f"Unclassified MOG2 Motion Hazard (hits={getattr(t, 'hits', 0)})"
-                    target_box = t.box
+                    harvest_reason = f"Unclassified MOG2 Motion Hazard (tracked {hits} frames)"
+                    target_box = box
                     target_label = "Moving Obstacle"
                     break
-                elif getattr(t, "velocity", (0.0, 0.0))[1] < self.min_approach_vel and getattr(t, "distance", 999.0) < 4.0:
-                    should_harvest = True
-                    vel_z = getattr(t, "velocity", (0.0, 0.0))[1]
-                    harvest_reason = f"Fast Approaching Hazard ({vel_z:.2f} m/s)"
-                    target_box = t.box
-                    target_label = t.label
-                    break
+                else:
+                    vel_z = 0.0
+                    dist_z = 999.0
+                    if hasattr(t, 'velocity'):
+                        vel_z = t.velocity[1]
+                    elif hasattr(t, 'get_velocity_mps'):
+                        from utils import get_real_width, FOCAL_LENGTH
+                        w = box[2] if len(box) >= 3 else 0
+                        dist_z = (get_real_width(t.label) * FOCAL_LENGTH) / w if w > 0 else 999.0
+                        _, vel_z = t.get_velocity_mps(FOCAL_LENGTH, get_real_width(t.label), 15.0)
+                    if hasattr(t, 'distance'):
+                        dist_z = t.distance
+                        
+                    if vel_z > self.min_approach_vel and dist_z < 4.0:
+                        should_harvest = True
+                        harvest_reason = f"Fast Approaching Hazard ({vel_z:.2f} m/s)"
+                        target_box = box
+                        target_label = t.label
+                        break
 
         if should_harvest and target_box is not None:
             self._save_sample(frame, target_box, target_label, harvest_reason)
@@ -120,6 +134,23 @@ class ActiveLearningHarvester:
             return True
 
         return False
+
+    def _enforce_storage_limits(self, max_mb=500, max_files=2000):
+        """Enforces FIFO storage limits to prevent disk exhaustion."""
+        try:
+            if not IMAGES_DIR.exists():
+                return
+            files = sorted(IMAGES_DIR.glob("*.jpg"), key=lambda p: p.stat().st_mtime)
+            total_size_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
+            
+            while len(files) > max_files or total_size_mb > max_mb:
+                oldest = files.pop(0)
+                size_mb = oldest.stat().st_size / (1024 * 1024)
+                oldest.unlink(missing_ok=True)
+                total_size_mb -= size_mb
+                print(f"[HARVESTER CLEANUP] Removed oldest sample {oldest.name} to free disk space.")
+        except Exception as e:
+            print(f"[HARVESTER ERROR] Storage cleanup failed: {e}")
 
     def _save_sample(self, frame, box, label, reason):
         try:
@@ -156,5 +187,6 @@ class ActiveLearningHarvester:
 
             self.harvest_count += 1
             print(f"[HARVESTER] Sample logged: {filename} ({reason})")
+            self._enforce_storage_limits()
         except Exception as e:
             print(f"[HARVESTER ERROR] Failed to save sample: {e}")

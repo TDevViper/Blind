@@ -8,7 +8,7 @@ class OccupancyGrid:
     A 1D Egocentric spatial map representing the world in front of the user.
     Divides the horizontal space into sectors (e.g. Left, Center, Right) to determine free-space paths.
     """
-    def __init__(self, frame_width):
+    def __init__(self, frame_width=640):
         self.frame_width = frame_width
         # We define 3 basic spatial zones: Left, Center (Safe Path), Right
         self.zones = {
@@ -18,9 +18,9 @@ class OccupancyGrid:
         }
         
         self.zone_boundaries = {
-            "LEFT": (-float('inf'), -0.4),
-            "CENTER": (-0.4, 0.4),
-            "RIGHT": (0.4, float('inf'))
+            "LEFT": (-float('inf'), -0.75),
+            "CENTER": (-0.75, 0.75),
+            "RIGHT": (0.75, float('inf'))
         }
 
     def build_grid(self, trackers):

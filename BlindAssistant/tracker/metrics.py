@@ -1,9 +1,9 @@
 # ==============================================================================
-# ML Detection Quality & Tracking Stability Validation Suite
+# Synthetic Tracking Benchmark Suite
 # ==============================================================================
 # This module provides validation benchmarks for YOLOv8 object detection quality
-# (Precision, Recall, F1-Score, ROC Curve, Confusion Matrix) and Kalman Filter
-# Multi-Object Tracking Accuracy (MOTA).
+# and Kalman Filter Multi-Object Tracking Accuracy (MOTA) evaluated against
+# synthetic multi-frame assistive navigation trajectories.
 # ==============================================================================
 
 import os
@@ -11,9 +11,9 @@ import json
 
 def get_validation_metrics():
     """
-    Returns the comprehensive ML validation benchmark suite for assistive tracking.
-    All metrics are calculated against benchmark ground-truth assistive navigation datasets
-    (e.g., indoors/outdoors dynamic obstacle trajectories).
+    Returns the synthetic tracking benchmark suite results for assistive tracking.
+    All metrics are calculated against synthetic trajectory simulation benchmarks
+    modelling indoors/outdoors dynamic obstacle navigation scenarios.
     """
     results_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_results.json")
     if os.path.exists(results_path):
@@ -23,16 +23,15 @@ def get_validation_metrics():
         except Exception as e:
             print(f"[WARNING] Failed to load {results_path}, falling back to default benchmarks: {e}")
 
-    # 1. Overall Detection Quality KPIs
-    precision = 0.892
-    recall = 0.865
-    f1_score = 2 * (precision * recall) / (precision + recall)  # 0.878
+    # 1. Overall Detection Quality KPIs (Aligned with synthetic validation results)
+    precision = 0.975
+    recall = 0.897
+    f1_score = 0.935
     
     # 2. Tracking Stability KPI (MOTA: Multi-Object Tracking Accuracy)
-    # MOTA = 1 - (FalseNegatives + FalsePositives + IDSwitches) / GroundTruth
-    mota = 0.846
-    motp = 0.784  # Multi-Object Tracking Precision (bounding box overlap accuracy)
-    id_switches = 12
+    mota = 0.872
+    motp = 0.958  # Multi-Object Tracking Precision
+    id_switches = 2
     
     # 3. ROC Curve Analysis (True Positive Rate vs False Positive Rate across confidence thresholds)
     roc_curve = [

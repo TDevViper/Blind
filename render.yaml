@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: blind-ai-backend
+    env: python
+    region: oregon
+    plan: starter # Starter plan or higher is recommended for PyTorch memory requirements
+    buildCommand: "pip install --upgrade pip && pip install -r requirements_prod.txt"
+    startCommand: "gunicorn -k custom_worker.CustomEventletWorker -w 1 -b 0.0.0.0:$PORT app:app --timeout 120"
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: CORS_ORIGINS
+        value: "*" # Update to your Vercel URL once deployed, e.g., https://blind-ai-frontend.vercel.app
+      - key: LLM_API_KEY
+        value: "" # Add your Gemini/OpenAI key if using LLM spatial reasoner

@@ -26,6 +26,8 @@ interface HarvesterStats {
   last_harvest_time?: number;
 }
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+
 export default function Home() {
   // Navigation & UI State
   const [activeTab, setActiveTab] = useState<number>(0);
@@ -54,6 +56,8 @@ export default function Home() {
     id_switches: 2,
   });
   const [harvesterStats, setHarvesterStats] = useState<HarvesterStats>({ total_harvested: 0 });
+  const [serverFps, setServerFps] = useState<number>(0);
+  const [serverLatency, setServerLatency] = useState<number>(0);
 
   // Refs for Video & WebSocket
   const socketRef = useRef<Socket | null>(null);
@@ -62,6 +66,7 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpokenRef = useRef<string>("");
+  const lastSpokenTimeRef = useRef<number>(0);
 
   // Web Audio API for Spatial Beacons (Earcons)
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -98,11 +103,23 @@ export default function Home() {
     }
   }, [isMuted]);
 
-  // Speech Synthesis
+  // Speech Synthesis with Client-Side Stutter Throttle & Fuzzy Distance Deduplication
   const speak = useCallback((text: string, force = false) => {
     if (isMuted || !("speechSynthesis" in window)) return;
-    if (!force && text === lastSpokenRef.current) return;
+    
+    const now = Date.now();
+    // Throttle non-forced speech to prevent stuttering/stacking (min 1500ms between prompts)
+    if (!force && now - lastSpokenTimeRef.current < 1500) return;
+
+    // Fuzzy deduplication: if identical text or only minor decimal distance variance (e.g. 2.1m vs 2.2m), skip if spoken recently (< 4 seconds)
+    if (!force && now - lastSpokenTimeRef.current < 4000) {
+      const cleanPrev = lastSpokenRef.current.replace(/\d+\.\d+/g, "#");
+      const cleanCurr = text.replace(/\d+\.\d+/g, "#");
+      if (cleanPrev === cleanCurr) return;
+    }
+
     lastSpokenRef.current = text;
+    lastSpokenTimeRef.current = now;
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -126,10 +143,39 @@ export default function Home() {
     setRadarZones(nextZones);
   }, [telemetry]);
 
+  // 5-Second Audible Safety Heartbeat
+  useEffect(() => {
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    if (isTracking && isConnected && !isMuted) {
+      heartbeatTimer = setInterval(() => {
+        try {
+          if (!audioCtxRef.current) {
+            audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          }
+          const ctx = audioCtxRef.current;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = 330; // subtle low-pitched heartbeat
+          gain.gain.setValueAtTime(0.04, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.15);
+        } catch {
+          // fallback
+        }
+      }, 5000);
+    }
+    return () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    };
+  }, [isTracking, isConnected, isMuted]);
+
   // Initialize Socket.IO
   useEffect(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
-    socketRef.current = io(backendUrl, { transports: ["polling", "websocket"], upgrade: true });
+    socketRef.current = io(BACKEND_URL, { transports: ["polling", "websocket"], upgrade: true });
 
     socketRef.current.on("connect", () => {
       setIsConnected(true);
@@ -139,11 +185,26 @@ export default function Home() {
     socketRef.current.on("disconnect", () => {
       setIsConnected(false);
       setIsTracking(false);
-      setCurrentInstruction("Vision Server Disconnected. Please check connection.");
-      speak("Warning! Vision server disconnected.", true);
+      setCurrentInstruction("CRITICAL ALARM: Vision Server Disconnected. Stop immediately and rely on white cane/guide dog.");
+      speak("Critical alarm! Vision server disconnected. Stop immediately.", true);
+      try {
+        if (audioCtxRef.current) {
+          const ctx = audioCtxRef.current;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sawtooth";
+          osc.frequency.value = 220;
+          gain.gain.setValueAtTime(0.3, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.5);
+        }
+      } catch {}
     });
 
-    socketRef.current.on("processed_frame", (data: { image: string; instruction?: string; telemetry?: TelemetryItem[] }) => {
+    socketRef.current.on("processed_frame", (data: { image: string; instruction?: string; telemetry?: TelemetryItem[]; fps?: number; latency_ms?: number }) => {
       if (data.image) setProcessedImg(data.image);
       if (data.instruction) {
         setCurrentInstruction(data.instruction);
@@ -156,13 +217,15 @@ export default function Home() {
           playSpatialBeacon("CENTER", nearest.distance);
         }
       }
+      if (typeof data.fps === "number") setServerFps(data.fps);
+      if (typeof data.latency_ms === "number") setServerLatency(data.latency_ms);
     });
 
-    fetch(`${backendUrl}/api/metrics`).then(res => res.json()).then(data => {
+    fetch(`${BACKEND_URL}/api/metrics`).then(res => res.json()).then(data => {
       if (data && data.mota) setMetrics(data);
     }).catch(() => {});
 
-    fetch(`${backendUrl}/api/harvested_stats`).then(res => res.json()).then(data => {
+    fetch(`${BACKEND_URL}/api/harvested_stats`).then(res => res.json()).then(data => {
       if (data) setHarvesterStats(data);
     }).catch(() => {});
 
@@ -222,8 +285,7 @@ export default function Home() {
   const toggleLlmMode = () => {
     const nextVal = !useLlm;
     setUseLlm(nextVal);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
-    fetch(`${backendUrl}/api/llm_mode`, {
+    fetch(`${BACKEND_URL}/api/llm_mode`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: nextVal }),
@@ -281,6 +343,18 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Live Telemetry Dashboard Bar */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", padding: "10px 16px", background: "rgba(0,0,0,0.45)", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.08)", marginBottom: "16px", alignItems: "center", justifyContent: "space-between", fontSize: "0.85rem", fontFamily: "var(--font-mono)" }}>
+        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+          <span>⚡ <strong style={{ color: "var(--primary-cyan)" }}>FPS:</strong> {serverFps}</span>
+          <span>⏱️ <strong style={{ color: "var(--neon-orange)" }}>Latency:</strong> {serverLatency}ms</span>
+          <span>🌾 <strong style={{ color: "var(--accent-pink)" }}>Harvested:</strong> {harvesterStats.total_harvested || 0} samples</span>
+        </div>
+        <div>
+          <span>🧠 <strong style={{ color: "#ffffff" }}>Mode:</strong> <span style={{ color: useLlm ? "var(--neon-green)" : "var(--text-muted)" }}>{useLlm ? "Spatial LLM Reasoner" : "Zero-Latency Fast YOLO"}</span></span>
+        </div>
+      </div>
+
       {/* Pill Tab Navigation */}
       <nav className={styles.navBar} role="tablist" aria-label="Main Navigation">
         <button
@@ -313,6 +387,14 @@ export default function Home() {
       {activeTab === 0 && (
         <section className={`${styles.cockpit} animate-entry`} role="tabpanel" aria-label="Live Navigation Co-Pilot View">
           <div>
+            {/* Supplementary O&M Safety Banner */}
+            <div style={{ backgroundColor: "rgba(255, 170, 0, 0.15)", border: "1px solid var(--neon-orange)", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px", color: "#ffcc00", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "10px" }} role="alert">
+              <span style={{ fontSize: "1.5rem" }}>⚠️</span>
+              <div>
+                <strong>Supplementary Mobility Aid — Not a Replacement for Cane or Guide Dog:</strong> Monocular depth estimation provides approximate distance guidance. Always rely on primary Orientation &amp; Mobility (O&amp;M) aids for drop-offs, stairs, and surface obstacles.
+              </div>
+            </div>
+
             {/* Video & Overlay Canvas */}
             <div className={styles.videoContainer}>
               {processedImg && isTracking ? (
@@ -513,8 +595,7 @@ export default function Home() {
             <button
               className="btn-secondary"
               onClick={() => {
-                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
-                fetch(`${backendUrl}/api/metrics`).then(r => r.json()).then(d => {
+                fetch(`${BACKEND_URL}/api/metrics`).then(r => r.json()).then(d => {
                   if (d && d.mota) setMetrics(d);
                   speak("ML benchmark report refreshed.");
                 });
@@ -544,8 +625,7 @@ export default function Home() {
             <button
               className="btn-secondary"
               onClick={() => {
-                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
-                fetch(`${backendUrl}/api/harvested_stats`).then(r => r.json()).then(d => {
+                fetch(`${BACKEND_URL}/api/harvested_stats`).then(r => r.json()).then(d => {
                   if (d) setHarvesterStats(d);
                   speak(`Total harvested samples: ${d.total_harvested || 0}`);
                 });

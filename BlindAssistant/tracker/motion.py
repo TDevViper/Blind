@@ -5,7 +5,10 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import calculate_iou
-from model_manager import ModelHotSwapper
+try:
+    from tracker.model_manager import ModelHotSwapper
+except ImportError:
+    from model_manager import ModelHotSwapper
 
 # ==========================================
 # Scoped PyTorch Security Bypass for Older Checkpoints
@@ -30,9 +33,13 @@ class VisionPipeline:
     Handles Object Detection (YOLO) and Motion Segmentation (Background Subtraction).
     Fuses the results into a single list of detected entities.
     """
-    def __init__(self, yolo_model_path="BlindAssistant/yolov8n.pt"):
-        with ScopedLegacyLoad():
-            self.model = YOLO(yolo_model_path)
+    def __init__(self, yolo_model_path="BlindAssistant/yolov8n.pt", yolo_model=None, lock=None):
+        self.lock = lock
+        if yolo_model is not None:
+            self.model = yolo_model
+        else:
+            with ScopedLegacyLoad():
+                self.model = YOLO(yolo_model_path)
         self.model_manager = ModelHotSwapper(default_model_path=yolo_model_path)
         # Background subtractor to catch unknown moving objects outside YOLO's vocabulary
         self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=25, detectShadows=True)
@@ -44,14 +51,30 @@ class VisionPipeline:
         Runs YOLO and Motion Detection on a frame and fuses the results.
         Returns a list of tuples: ( [x, y, w, h], label )
         """
-        # Check for model updates (zero-downtime hot-swap)
+        # Check for model updates (zero-downtime async hot-swap)
         new_model_path = self.model_manager.check_for_updates()
         if new_model_path:
-            with ScopedLegacyLoad():
-                self.model = YOLO(new_model_path)
+            import threading
+            def _async_load(path):
+                try:
+                    with ScopedLegacyLoad():
+                        new_mod = YOLO(path)
+                    if self.lock:
+                        with self.lock:
+                            self.model = new_mod
+                    else:
+                        self.model = new_mod
+                    print(f"[MODEL MANAGER] Zero-downtime swap complete: {path}")
+                except Exception as e:
+                    print(f"[MODEL HOTSWAP ERROR] {e}")
+            threading.Thread(target=_async_load, args=(new_model_path,), daemon=True).start()
 
         # Stream A: YOLO Detections (Predefined objects, evaluated from conf 0.25 for active learning)
-        yolo_outputs = self.model(frame, verbose=False, conf=0.25, imgsz=320)[0]
+        if self.lock:
+            with self.lock:
+                yolo_outputs = self.model(frame, verbose=False, conf=0.25, imgsz=320)[0]
+        else:
+            yolo_outputs = self.model(frame, verbose=False, conf=0.25, imgsz=320)[0]
         detected_entities = [] 
         raw_detections = []
         
@@ -103,6 +126,7 @@ class VisionPipeline:
         
         # Stream C: Fusion Engine (Only add MOG2 unknown obstacles if ego-motion is minimal)
         if not ego_motion_detected:
+            yolo_entities = list(detected_entities)
             for contour in contours:
                 if cv2.contourArea(contour) < 800:  
                     continue
@@ -111,7 +135,7 @@ class VisionPipeline:
                 
                 # Check if this motion overlaps with an object YOLO already found
                 is_predefined = False
-                for y_box, _ in detected_entities:
+                for y_box, _ in yolo_entities:
                     if calculate_iou(m_box, y_box) > 0.15:
                         is_predefined = True
                         break
