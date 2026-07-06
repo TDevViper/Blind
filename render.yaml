@@ -7,9 +7,11 @@ services:
     buildCommand: "pip install --upgrade pip && pip install -r requirements_prod.txt"
     startCommand: "gunicorn -k custom_worker.CustomEventletWorker -w 1 -b 0.0.0.0:$PORT app:app --timeout 120"
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.13"
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: CORS_ORIGINS
-        value: "*" # Update to your Vercel URL once deployed, e.g., https://blind-ai-frontend.vercel.app
+        value: "*"
       - key: LLM_API_KEY
-        value: "" # Add your Gemini/OpenAI key if using LLM spatial reasoner
+        value: ""
