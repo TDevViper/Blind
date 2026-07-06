@@ -39,8 +39,14 @@ socketio = SocketIO(app, cors_allowed_origins=cors_origins, async_mode=async_mod
 
 @app.after_request
 def after_request(response):
-    origins = os.environ.get("CORS_ORIGINS", "*")
-    response.headers.add('Access-Control-Allow-Origin', origins)
+    origins_env = os.environ.get("CORS_ORIGINS", "*")
+    request_origin = request.headers.get("Origin")
+    if origins_env == "*":
+        response.headers.add('Access-Control-Allow-Origin', "*")
+    else:
+        allowed = [o.strip() for o in origins_env.split(",")]
+        if request_origin in allowed:
+            response.headers.add('Access-Control-Allow-Origin', request_origin)
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
