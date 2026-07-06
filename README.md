@@ -73,7 +73,6 @@ Below is an exhaustive breakdown of every file and directory in this project, ou
 | `Dockerfile` | **Containerization** | Container build recipe based on `python:3.10-slim`. Pre-installs system graphics dependencies (`libglib2.0-0`, `libgl1`), installs production requirements, and launches the application via Gunicorn. |
 | `requirements.txt` | **Dependencies** | Standard Python dependency specifications for local desktop development (`ultralytics`, `opencv-python`, `numpy`, `filterpy`, `pyttsx3`, `scipy`). |
 | `requirements_prod.txt` | **Dependencies** | Optimized dependencies tailored for headless Linux cloud environments and Docker production engines (uses `opencv-python-headless`, `eventlet`, `gunicorn`, and caps `torch<2.6.0` for stability). |
-| `requirements_web.txt` | **Dependencies** | Minimal web framework dependencies (`Flask`, `Flask-SocketIO`, `eventlet`). |
 | `.gitignore` | **Git Config** | Specifies intentionally untracked files to ignore (Python bytecode `__pycache__`, virtual environments `venv/`/`env/`, OS system files `.DS_Store`, etc.). |
 
 ---
