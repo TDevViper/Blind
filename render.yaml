@@ -3,7 +3,7 @@ services:
     name: blind-ai-backend
     env: python
     region: oregon
-    plan: starter # Starter plan or higher is recommended for PyTorch memory requirements
+    plan: free # Starter plan or higher is recommended for PyTorch memory requirements
     buildCommand: "pip install --upgrade pip && pip install -r requirements_prod.txt"
     startCommand: "gunicorn -k custom_worker.CustomEventletWorker -w 1 -b 0.0.0.0:$PORT app:app --timeout 120"
     envVars:
